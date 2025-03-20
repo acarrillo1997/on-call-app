@@ -25,14 +25,14 @@ export async function verifyHankoToken(token: string): Promise<boolean> {
 }
 
 // Get the Hanko JWT token from cookies
-export function getHankoToken() {
-  const cookieStore = cookies();
+export async function getHankoToken() {
+  const cookieStore = await cookies();
   return cookieStore.get('hanko')?.value;
 }
 
 // Handle server-side authentication (for protected routes)
 export async function requireAuth() {
-  const token = getHankoToken();
+  const token = await getHankoToken();
   
   if (!token) {
     redirect('/login');
@@ -46,8 +46,8 @@ export async function requireAuth() {
 }
 
 // Get the current user ID from the Hanko JWT
-export function getCurrentUserId(): string | null {
-  const token = getHankoToken();
+export async function getCurrentUserId(): Promise<string | null> {
+  const token = await getHankoToken();
   
   if (!token) return null;
   
