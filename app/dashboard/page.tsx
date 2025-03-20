@@ -4,6 +4,8 @@ import { Users, Bell, ShieldAlert, Clock } from "lucide-react"
 import { DashboardStats } from "@/components/dashboard-stats"
 import { ActiveIncidents } from "@/components/active-incidents"
 import { OnCallSchedule } from "@/components/on-call-schedule"
+import Link from "next/link"
+import { Icons } from "@/components/icons"
 
 export default function DashboardPage() {
   return (
@@ -76,6 +78,27 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Administration</CardTitle>
+              <CardDescription>
+                Manage your organization's users and teams
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div>
+                <Link href="/users" className="flex items-center -mx-2 p-2 hover:bg-gray-100 rounded-md transition">
+                  <Icons.users className="w-5 h-5 mr-3" />
+                  <span>User Management</span>
+                </Link>
+                <Link href="/teams/admin" className="flex items-center -mx-2 p-2 hover:bg-gray-100 rounded-md transition">
+                  <Icons.group className="w-5 h-5 mr-3" />
+                  <span>Team Administration</span>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="incidents" className="space-y-4">

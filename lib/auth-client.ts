@@ -1,60 +1,60 @@
-// Client-side authentication utilities that can be used in client components
+// Client-side authentication utilities
 
-// Client-side function to get current user ID
-export async function getCurrentUserId(): Promise<string | null> {
+// Get the current user ID from the Hanko JWT
+export async function getCurrentUserId() {
   try {
-    // Get hanko cookie from browser
-    const cookies = document.cookie.split(';');
-    const hankoCookie = cookies.find(cookie => cookie.trim().startsWith('hanko='));
+    // Try to get the token from the cookie
+    const cookies = parseCookies();
+    const token = cookies['hanko'];
     
-    if (!hankoCookie) {
-      console.log("No hanko cookie found");
-      
-      // Try to get from localStorage (for development/debug)
-      const localId = localStorage.getItem('debug_user_id');
-      if (localId) {
-        console.log("Using debug user ID from localStorage:", localId);
-        return localId;
-      }
-      
-      // Extract user ID from the URL if possible
-      const path = window.location.pathname;
-      const match = path.match(/\/users\/([^\/]+)/);
-      if (match && match[1]) {
-        console.log("Extracted user ID from URL:", match[1]);
-        return match[1];
-      }
-      
+    if (!token) {
       return null;
     }
-    
-    // Extract the token value
-    const token = hankoCookie.split('=')[1].trim();
-    
-    // Parse the JWT payload (the middle part of the token)
-    const payload = JSON.parse(
-      atob(token.split('.')[1])
-    );
-    
-    const userId = payload.sub || null;
-    console.log("Got user ID from token:", userId);
-    
-    // Store for development/debug purposes
-    if (userId) {
-      localStorage.setItem('debug_user_id', userId);
-    }
-    
-    return userId;
+
+    // Parse the token to get the user ID
+    const payload = parseJwt(token);
+    return payload?.sub || null;
   } catch (error) {
     console.error('Error getting current user ID:', error);
-    
-    // For development/debug purposes, use a fallback ID if saved
-    const fallbackId = localStorage.getItem('debug_user_id');
-    if (fallbackId) {
-      console.log("Using fallback user ID:", fallbackId);
-      return fallbackId;
-    }
-    
+    return null;
+  }
+}
+
+// Check if the user is authenticated
+export async function isAuthenticated() {
+  const userId = await getCurrentUserId();
+  return userId !== null;
+}
+
+// Require authentication - can be used in client components
+export async function requireAuth() {
+  const isAuthed = await isAuthenticated();
+  if (!isAuthed) {
+    throw new Error('Authentication required');
+  }
+}
+
+// Parse cookies from the document
+function parseCookies() {
+  const cookies: Record<string, string> = {};
+  if (typeof document === 'undefined') return cookies;
+  
+  const cookieStr = document.cookie;
+  if (!cookieStr) return cookies;
+  
+  cookieStr.split(';').forEach(cookie => {
+    const [key, value] = cookie.trim().split('=');
+    if (key) cookies[key.trim()] = value;
+  });
+  
+  return cookies;
+}
+
+// Parse a JWT token
+function parseJwt(token: string) {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch (e) {
     return null;
   }
 } 
