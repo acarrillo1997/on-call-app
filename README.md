@@ -63,6 +63,36 @@ A web application for managing on-call schedules and incident response, using Ne
 3. Copy your Hanko API URL to the `.env.local` file
 4. Configure allowed origins in your Hanko Cloud Console settings
 
+## Database Setup
+
+This project uses PostgreSQL for data persistence. Follow these steps to set up the database:
+
+1. Install PostgreSQL on your machine if you haven't already.
+2. Create a PostgreSQL database:
+   ```bash
+   createdb oncall
+   ```
+3. Update your `.env` file with the correct database connection URL:
+   ```
+   DATABASE_URL="postgresql://username:password@localhost:5432/oncall"
+   ```
+   Replace `username` and `password` with your PostgreSQL credentials.
+
+4. Run migrations to create the database schema:
+   ```bash
+   npm run prisma:migrate
+   ```
+
+5. Generate the Prisma client:
+   ```bash
+   npm run prisma:generate
+   ```
+
+To explore your database with a visual interface, you can use Prisma Studio:
+```bash
+npm run prisma:studio
+```
+
 ## License
 
 [MIT](LICENSE) 

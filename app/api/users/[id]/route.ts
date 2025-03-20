@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
-
-// Mock database for demonstration
-const userProfiles: Record<string, any> = {};
+import { prisma } from "@/lib/db";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
+  const { params } = context;
+  const id = params.id;
+  
   try {
     // Verify authentication
     const { success, userId } = await verifyAuth(request);
@@ -19,22 +20,30 @@ export async function GET(
     }
 
     // Access control - users can only access their own data
-    if (userId !== params.id) {
+    if (userId !== id) {
       return NextResponse.json(
         { error: "Forbidden - you can only access your own profile" },
         { status: 403 }
       );
     }
 
-    // Get user profile from "database" or create a placeholder
-    const userProfile = userProfiles[params.id] || {
-      id: params.id,
-      name: null,
-      avatarUrl: null,
-      createdAt: new Date().toISOString(),
-    };
+    // Get user from database
+    const user = await prisma.user.findUnique({
+      where: { id },
+    });
 
-    return NextResponse.json(userProfile);
+    // If user doesn't exist, create a new one
+    if (!user) {
+      const newUser = await prisma.user.create({
+        data: {
+          id,
+          createdAt: new Date(),
+        },
+      });
+      return NextResponse.json(newUser);
+    }
+
+    return NextResponse.json(user);
   } catch (error) {
     console.error("Error in user profile API:", error);
     return NextResponse.json(
@@ -46,8 +55,11 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
+  const { params } = context;
+  const id = params.id;
+  
   try {
     // Verify authentication
     const { success, userId } = await verifyAuth(request);
@@ -59,7 +71,7 @@ export async function PATCH(
     }
 
     // Access control - users can only update their own data
-    if (userId !== params.id) {
+    if (userId !== id) {
       return NextResponse.json(
         { error: "Forbidden - you can only update your own profile" },
         { status: 403 }
@@ -70,7 +82,7 @@ export async function PATCH(
     const data = await request.json();
 
     // Validate and sanitize inputs
-    const allowedFields = ["name", "avatarUrl"];
+    const allowedFields = ["name", "avatarUrl", "email", "phone", "timezone"];
     const sanitizedData: Record<string, any> = {};
     
     for (const field of allowedFields) {
@@ -79,14 +91,28 @@ export async function PATCH(
       }
     }
 
-    // Update user profile
-    userProfiles[params.id] = {
-      ...userProfiles[params.id] || { id: params.id, createdAt: new Date().toISOString() },
-      ...sanitizedData,
-      updatedAt: new Date().toISOString(),
-    };
+    // Update user profile in database
+    let user = await prisma.user.findUnique({
+      where: { id },
+    });
 
-    return NextResponse.json(userProfiles[params.id]);
+    if (user) {
+      // Update existing user
+      user = await prisma.user.update({
+        where: { id },
+        data: sanitizedData,
+      });
+    } else {
+      // Create new user if they don't exist
+      user = await prisma.user.create({
+        data: {
+          id,
+          ...sanitizedData,
+        },
+      });
+    }
+
+    return NextResponse.json(user);
   } catch (error) {
     console.error("Error in update user profile API:", error);
     return NextResponse.json(

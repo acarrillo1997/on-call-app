@@ -1,0 +1,148 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for storing user profile information
+model User {
+  id            String   @id
+  name          String?
+  email         String?
+  avatarUrl     String?
+  phone         String?
+  timezone      String?  @default("UTC")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  teams         TeamMember[]
+  onCallShifts  OnCallShift[]
+  incidents     Incident[]
+  settings      UserSettings?
+  apiKeys       ApiKey[]
+  integrations  Integration[]
+}
+
+// UserSettings model for storing notification preferences
+model UserSettings {
+  id                       String   @id @default(cuid())
+  userId                   String   @unique
+  emailNotifications       Boolean  @default(true)
+  smsNotifications         Boolean  @default(true)
+  slackNotifications       Boolean  @default(false)
+  voiceNotifications       Boolean  @default(false)
+  incidentAssignmentChannel String   @default("all") // all, email, sms, none
+  scheduleChangeChannel     String   @default("email") // all, email, sms, none
+  escalationChannel         String   @default("all") // all, email, sms, none
+  webhookUrl                String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  // Relations
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ApiKey model for API access
+model ApiKey {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  key         String   @unique
+  lastUsed    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  revoked     Boolean  @default(false)
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Integration model for third-party services
+model Integration {
+  id            String   @id @default(cuid())
+  userId        String
+  service       String   // slack, teams, twilio, pagerduty
+  configuration Json     // Store connection details as JSON
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, service])
+}
+
+// Team model for organizations and groups
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  members     TeamMember[]
+  onCallShifts OnCallShift[]
+  incidents   Incident[]
+}
+
+// TeamMember junction table for many-to-many relation
+model TeamMember {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  role      String   @default("member") // e.g. "admin", "member"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id])
+  team      Team     @relation(fields: [teamId], references: [id])
+
+  @@unique([userId, teamId])
+}
+
+// OnCallShift model
+model OnCallShift {
+  id         String   @id @default(cuid())
+  userId     String
+  teamId     String
+  startTime  DateTime
+  endTime    DateTime
+  isActive   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  user       User     @relation(fields: [userId], references: [id])
+  team       Team     @relation(fields: [teamId], references: [id])
+}
+
+// Incident model
+model Incident {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  status      String   @default("open") // e.g. "open", "acknowledged", "resolved"
+  severity    String?  // e.g. "critical", "high", "medium", "low"
+  createdById String
+  teamId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  resolvedAt  DateTime?
+
+  // Relations
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  team        Team     @relation(fields: [teamId], references: [id])
+}
