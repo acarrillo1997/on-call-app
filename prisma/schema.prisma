@@ -32,6 +32,7 @@ model User {
   settings      UserSettings?
   apiKeys       ApiKey[]
   integrations  Integration[]
+  assignments   Assignment[]
 }
 
 // UserSettings model for storing notification preferences
@@ -97,6 +98,7 @@ model Team {
   invitations TeamInvitation[]
   onCallShifts OnCallShift[]
   incidents   Incident[]
+  schedules   Schedule[]
 }
 
 // TeamMember junction table for many-to-many relation
@@ -165,4 +167,39 @@ model Incident {
   // Relations
   createdBy   User     @relation(fields: [createdById], references: [id])
   team        Team     @relation(fields: [teamId], references: [id])
+}
+
+// Schedule model for on-call rotations
+model Schedule {
+  id                String      @id @default(cuid())
+  name              String
+  description       String?
+  rotationFrequency Int         @default(1)
+  rotationUnit      String      @default("weekly") // daily, weekly, biweekly, monthly
+  startDate         DateTime
+  endDate           DateTime?
+  timezone          String      @default("UTC")
+  teamId            String
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  // Relations
+  team              Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  assignments       Assignment[]
+}
+
+// Assignment model for individual on-call assignments
+model Assignment {
+  id          String      @id @default(cuid())
+  scheduleId  String
+  userId      String
+  date        DateTime
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  schedule    Schedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, date])
 }
