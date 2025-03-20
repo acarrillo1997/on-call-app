@@ -7,7 +7,7 @@ export async function GET(
   request: NextRequest,
   context: { params: { id: string } }
 ) {
-  const { params } = await context;
+  const { params } = context;
   const teamId = params.id;
   
   try {
@@ -69,7 +69,7 @@ export async function POST(
   request: NextRequest,
   context: { params: { id: string } }
 ) {
-  const { params } = await context;
+  const { params } = context;
   const teamId = params.id;
   
   try {
@@ -173,7 +173,7 @@ export async function DELETE(
   request: NextRequest,
   context: { params: { id: string } }
 ) {
-  const { params } = await context;
+  const { params } = context;
   const teamId = params.id;
   
   try {

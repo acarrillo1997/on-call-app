@@ -26,6 +26,7 @@ model User {
 
   // Relations
   teams         TeamMember[]
+  sentInvitations TeamInvitation[] @relation("InvitedBy")
   onCallShifts  OnCallShift[]
   incidents     Incident[]
   settings      UserSettings?
@@ -93,6 +94,7 @@ model Team {
 
   // Relations
   members     TeamMember[]
+  invitations TeamInvitation[]
   onCallShifts OnCallShift[]
   incidents   Incident[]
 }
@@ -111,6 +113,24 @@ model TeamMember {
   team      Team     @relation(fields: [teamId], references: [id])
 
   @@unique([userId, teamId])
+}
+
+// TeamInvitation model for inviting users to teams
+model TeamInvitation {
+  id            String   @id @default(cuid())
+  email         String
+  teamId        String
+  invitedById   String
+  role          String   @default("member")
+  token         String   @unique
+  status        String   @default("pending") // pending, accepted, expired
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy     User     @relation("InvitedBy", fields: [invitedById], references: [id])
 }
 
 // OnCallShift model

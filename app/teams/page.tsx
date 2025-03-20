@@ -50,6 +50,7 @@ export default function TeamsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showAddMemberDialog, setShowAddMemberDialog] = useState(false)
   const [createTeamDialog, setCreateTeamDialog] = useState(false)
+  const [showInviteDialog, setShowInviteDialog] = useState(false)
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
   const [teamMembers, setTeamMembers] = useState<Record<string, TeamMember[]>>({})
@@ -58,6 +59,9 @@ export default function TeamsPage() {
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [selectedMember, setSelectedMember] = useState("")
   const [selectedRole, setSelectedRole] = useState("member")
+  const [inviteEmail, setInviteEmail] = useState("")
+  const [inviteRole, setInviteRole] = useState("member")
+  const [inviteSending, setInviteSending] = useState(false)
   const [newTeamName, setNewTeamName] = useState("")
   const [newTeamDescription, setNewTeamDescription] = useState("")
   const [isAdmin, setIsAdmin] = useState(false)
@@ -305,6 +309,54 @@ export default function TeamsPage() {
       .substring(0, 2);
   };
 
+  // Add this new function for sending invitations
+  const sendInvitation = async () => {
+    if (!selectedTeam || !inviteEmail) return;
+    
+    setInviteSending(true);
+    try {
+      const response = await fetch(`/api/teams/${selectedTeam}/invitations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: inviteEmail,
+          role: inviteRole,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        toast({
+          title: 'Error',
+          description: data.error || 'Failed to send invitation',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      toast({
+        title: 'Invitation sent',
+        description: `An invitation has been sent to ${inviteEmail}`,
+      });
+      
+      setInviteEmail('');
+      setInviteRole('member');
+      setShowInviteDialog(false);
+    } catch (error) {
+      console.error('Error sending invitation:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send invitation',
+        variant: 'destructive',
+      });
+    } finally {
+      setInviteSending(false);
+    }
+  };
+
   return (
     <div className="container space-y-6 p-6 md:p-10">
       <div className="flex items-center justify-between">
@@ -409,6 +461,35 @@ export default function TeamsPage() {
                           Manage Schedule
                         </Button>
                       </CardFooter>
+                      {isAdmin && (
+                        <div className="flex gap-2 px-6 pb-6">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => {
+                              setSelectedTeam(team.id);
+                              setShowAddMemberDialog(true);
+                              fetchAvailableUsers(team.id);
+                            }}
+                          >
+                            <UserPlus className="h-4 w-4 mr-1" />
+                            Add Member
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => {
+                              setSelectedTeam(team.id);
+                              setShowInviteDialog(true);
+                            }}
+                          >
+                            <UserPlus className="h-4 w-4 mr-1" />
+                            Invite by Email
+                          </Button>
+                        </div>
+                      )}
                     </Card>
                   )
                 })}
@@ -444,6 +525,19 @@ export default function TeamsPage() {
                                 <UserPlus className="mr-2 h-4 w-4" />
                                 Add Member
                               </Button>
+                              {isAdmin && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedTeam(team.id);
+                                    setShowInviteDialog(true);
+                                  }}
+                                >
+                                  <UserPlus className="mr-2 h-4 w-4" />
+                                  Invite
+                                </Button>
+                              )}
                             </div>
                           </div>
                           <div className="mt-4">
@@ -561,34 +655,28 @@ export default function TeamsPage() {
       <Dialog open={createTeamDialog} onOpenChange={setCreateTeamDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create New Team</DialogTitle>
+            <DialogTitle>Create Team</DialogTitle>
             <DialogDescription>
-              Create a new team for your organization.
+              Add a new team to collaborate with your colleagues.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="teamName" className="text-right">
-                Team Name
-              </Label>
+            <div className="grid gap-2">
+              <Label htmlFor="name">Team Name</Label>
               <Input
-                id="teamName"
+                id="name"
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
                 placeholder="Enter team name"
-                className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="teamDescription" className="text-right">
-                Description
-              </Label>
+            <div className="grid gap-2">
+              <Label htmlFor="description">Description (optional)</Label>
               <Input
-                id="teamDescription"
+                id="description"
                 value={newTeamDescription}
                 onChange={(e) => setNewTeamDescription(e.target.value)}
-                placeholder="Enter team description (optional)"
-                className="col-span-3"
+                placeholder="Enter team description"
               />
             </div>
           </div>
@@ -596,8 +684,63 @@ export default function TeamsPage() {
             <Button variant="outline" onClick={() => setCreateTeamDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreateTeam} disabled={!newTeamName.trim()}>
-              Create Team
+            <Button onClick={handleCreateTeam}>Create Team</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite by Email Dialog */}
+      <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite Team Member</DialogTitle>
+            <DialogDescription>
+              Send an email invitation to join this team.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email Address</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="colleague@example.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="role">Role</Label>
+              <Select
+                value={inviteRole}
+                onValueChange={setInviteRole}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="member">Member</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowInviteDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={sendInvitation}
+              disabled={!inviteEmail || inviteSending}
+            >
+              {inviteSending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                "Send Invitation"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
