@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import HankoProfile from "@/components/HankoProfile"
 
 export default function SettingsPage() {
   const [notificationSettings, setNotificationSettings] = useState({
@@ -48,6 +49,14 @@ export default function SettingsPage() {
               <CardDescription>Manage your personal information and preferences.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <h3 className="font-medium">Hanko Authentication Settings</h3>
+                <p className="text-sm text-muted-foreground">Manage your passkeys, email, and authentication settings.</p>
+                <HankoProfile />
+              </div>
+              
+              <Separator />
+              
               <div className="flex items-center space-x-4">
                 <Avatar className="h-16 w-16">
                   <AvatarImage src="/placeholder.svg?height=64&width=64" alt="@user" />

@@ -66,6 +66,72 @@ export async function getCurrentUserId(): Promise<string | null> {
   }
 }
 
+// Get the current user ID from the Hanko JWT
+export async function getUserIdFromToken() {
+  const token = await getHankoToken();
+  if (!token) return null;
+
+  try {
+    // Using a simple JWT parsing approach 
+    // In a production app, you should use a proper JWT library
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1], 'base64').toString()
+    );
+    
+    return payload.sub;
+  } catch (error) {
+    console.error('Error parsing Hanko token:', error);
+    return null;
+  }
+}
+
+// Verify auth for API routes
+export async function verifyAuth(request: Request) {
+  // Try to get token from authorization header
+  const authHeader = request.headers.get('authorization');
+  let token = authHeader?.startsWith('Bearer ') 
+    ? authHeader.slice(7) 
+    : null;
+  
+  // If no token in header, try cookie (for server components/API routes)
+  if (!token) {
+    const cookieHeader = request.headers.get('cookie');
+    const cookies = cookieHeader?.split(';').reduce((acc, cookie) => {
+      const [key, value] = cookie.trim().split('=');
+      if (key) acc[key] = value;
+      return acc;
+    }, {} as Record<string, string>) || {};
+    
+    token = cookies['hanko'];
+  }
+  
+  if (!token) {
+    return { success: false, userId: null };
+  }
+  
+  try {
+    // Verify the token
+    const isValid = await verifyHankoToken(token);
+    if (!isValid) {
+      return { success: false, userId: null };
+    }
+    
+    // Parse the token to get the user ID
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1], 'base64').toString()
+    );
+    
+    return { 
+      success: true, 
+      userId: payload.sub,
+      email: payload.email
+    };
+  } catch (error) {
+    console.error('Error verifying auth:', error);
+    return { success: false, userId: null };
+  }
+}
+
 // NextAuth configuration options
 export const authOptions = {
   providers: [
