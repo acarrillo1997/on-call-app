@@ -29,11 +29,26 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireAuth } from '@/lib/auth-client';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
+import { Loader2 } from "lucide-react";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Team {
   id: string;
@@ -69,13 +84,50 @@ export default function TeamsAdmin() {
   const [newTeamDescription, setNewTeamDescription] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedRole, setSelectedRole] = useState('member');
+  const [removalConfirmOpen, setRemovalConfirmOpen] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<string | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [bulkRemoveConfirmOpen, setBulkRemoveConfirmOpen] = useState(false);
+  const [isBulkRemoving, setIsBulkRemoving] = useState(false);
+  const [isAdminOfSelectedTeam, setIsAdminOfSelectedTeam] = useState(false);
   const router = useRouter();
   
-  // Check authentication
+  // Check authentication and admin status
   useEffect(() => {
     const checkAuth = async () => {
       try {
         await requireAuth();
+        
+        // Check if user is an admin in any team
+        const response = await fetch('/api/teams');
+        if (response.ok) {
+          const teams = await response.json();
+          
+          // For each team, check if user is admin
+          let isAdmin = false;
+          for (const team of teams) {
+            const membersResponse = await fetch(`/api/teams/${team.id}/members`);
+            if (membersResponse.ok) {
+              const members = await membersResponse.json();
+              const currentUserMember = members.find((m: TeamMember) => m.role === 'admin');
+              
+              if (currentUserMember) {
+                isAdmin = true;
+                break;
+              }
+            }
+          }
+          
+          if (!isAdmin) {
+            toast({
+              title: "Access Denied",
+              description: "You must be a team admin to access this page",
+              variant: "destructive",
+            });
+            router.push('/teams');
+          }
+        }
       } catch (error) {
         router.push('/login');
       }
@@ -125,6 +177,21 @@ export default function TeamsAdmin() {
         
         const data = await response.json();
         setTeamMembers(data);
+        
+        // Check if current user is admin of this specific team
+        // We need to fetch the current user's ID and then check if they are an admin
+        const userResponse = await fetch('/api/user');
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
+          const currentUserId = userData.id;
+          
+          // Find if the current user is an admin in this team
+          const isAdmin = data.some((member: TeamMember) => 
+            member.userId === currentUserId && member.role === 'admin'
+          );
+          
+          setIsAdminOfSelectedTeam(isAdmin);
+        }
       } catch (error) {
         console.error('Error fetching team members:', error);
         toast({
@@ -235,12 +302,16 @@ export default function TeamsAdmin() {
   const handleRemoveMember = async (memberId: string) => {
     if (!selectedTeam) return;
     
-    if (!confirm('Are you sure you want to remove this member from the team?')) {
-      return;
-    }
+    setRemovalConfirmOpen(true);
+    setMemberToRemove(memberId);
+  };
+
+  const confirmRemoveMember = async () => {
+    if (!selectedTeam || !memberToRemove) return;
     
     try {
-      const response = await fetch(`/api/teams/${selectedTeam.id}/members?userId=${memberId}`, {
+      setIsRemoving(true);
+      const response = await fetch(`/api/teams/${selectedTeam.id}/members?userId=${memberToRemove}`, {
         method: 'DELETE',
       });
       
@@ -250,7 +321,7 @@ export default function TeamsAdmin() {
       }
       
       // Remove member from local state
-      setTeamMembers(teamMembers.filter(member => member.userId !== memberId));
+      setTeamMembers(teamMembers.filter(member => member.userId !== memberToRemove));
       
       toast({
         title: 'Success',
@@ -263,6 +334,10 @@ export default function TeamsAdmin() {
         description: error instanceof Error ? error.message : 'Failed to remove team member',
         variant: 'destructive',
       });
+    } finally {
+      setIsRemoving(false);
+      setRemovalConfirmOpen(false);
+      setMemberToRemove(null);
     }
   };
 
@@ -330,6 +405,111 @@ export default function TeamsAdmin() {
   const openAddMemberDialog = () => {
     fetchUsers();
     setAddMemberDialogOpen(true);
+  };
+
+  // Get initials from user name
+  const getInitials = (name: string): string => {
+    return name
+      .split(' ')
+      .map(part => part[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
+  };
+
+  const handleSelectMember = (userId: string) => {
+    setSelectedMembers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId) 
+        : [...prev, userId]
+    );
+  };
+
+  const handleSelectAllMembers = () => {
+    if (selectedMembers.length === teamMembers.length) {
+      setSelectedMembers([]);
+    } else {
+      setSelectedMembers(teamMembers.map(member => member.userId));
+    }
+  };
+
+  const handleBulkRemove = () => {
+    if (selectedMembers.length === 0) return;
+    
+    setBulkRemoveConfirmOpen(true);
+  };
+
+  const confirmBulkRemove = async () => {
+    if (!selectedTeam || selectedMembers.length === 0) return;
+    
+    try {
+      setIsBulkRemoving(true);
+      
+      // Check if removing all admins
+      const adminMembers = teamMembers.filter(member => 
+        member.role === 'admin' && selectedMembers.includes(member.userId)
+      );
+      
+      const allAdminsSelected = adminMembers.length === teamMembers.filter(m => m.role === 'admin').length;
+      
+      if (allAdminsSelected) {
+        toast({
+          title: 'Error',
+          description: 'Cannot remove all admin members from the team',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      // Process each removal
+      const results = await Promise.all(
+        selectedMembers.map(async (memberId) => {
+          try {
+            const response = await fetch(`/api/teams/${selectedTeam.id}/members?userId=${memberId}`, {
+              method: 'DELETE',
+            });
+            
+            return { 
+              userId: memberId, 
+              success: response.ok 
+            };
+          } catch (error) {
+            return { 
+              userId: memberId, 
+              success: false 
+            };
+          }
+        })
+      );
+      
+      // Update UI based on results
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.length - successCount;
+      
+      // Update team members state to remove successful deletions
+      const successfulUserIds = results.filter(r => r.success).map(r => r.userId);
+      setTeamMembers(prev => prev.filter(member => !successfulUserIds.includes(member.userId)));
+      
+      // Show toast with results
+      toast({
+        title: 'Bulk Remove Complete',
+        description: `Successfully removed ${successCount} members${failCount > 0 ? `, failed to remove ${failCount} members` : ''}`,
+        variant: successCount > 0 ? 'default' : 'destructive',
+      });
+      
+      // Clear selections
+      setSelectedMembers([]);
+    } catch (error) {
+      console.error('Error removing team members:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to remove team members',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsBulkRemoving(false);
+      setBulkRemoveConfirmOpen(false);
+    }
   };
 
   return (
@@ -420,7 +600,7 @@ export default function TeamsAdmin() {
                 <span>
                   {selectedTeam ? `${selectedTeam.name} Members` : 'Team Members'}
                 </span>
-                {selectedTeam && (
+                {selectedTeam && isAdminOfSelectedTeam && (
                   <Dialog open={addMemberDialogOpen} onOpenChange={setAddMemberDialogOpen}>
                     <DialogTrigger asChild>
                       <Button size="sm" onClick={openAddMemberDialog}>Add Member</Button>
@@ -494,62 +674,174 @@ export default function TeamsAdmin() {
                   </AlertDescription>
                 </Alert>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {teamMembers.map((member) => (
-                      <TableRow key={member.id}>
-                        <TableCell>
-                          {member.user.name || 'Unnamed User'}
-                        </TableCell>
-                        <TableCell>
-                          {member.user.email || 'No email'}
-                        </TableCell>
-                        <TableCell>
-                          {member.role === 'admin' ? 'Admin' : 'Member'}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm">
-                                Actions
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {member.role === 'admin' ? (
-                                <DropdownMenuItem onClick={() => handleUpdateMemberRole(member.userId, 'member')}>
-                                  Make Member
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem onClick={() => handleUpdateMemberRole(member.userId, 'admin')}>
-                                  Make Admin
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem 
-                                className="text-red-600"
-                                onClick={() => handleRemoveMember(member.userId)}
-                              >
-                                Remove from Team
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">
+                          {isAdminOfSelectedTeam && (
+                            <Checkbox 
+                              checked={selectedMembers.length === teamMembers.length && teamMembers.length > 0} 
+                              data-state={selectedMembers.length > 0 && selectedMembers.length < teamMembers.length ? "indeterminate" : ""}
+                              onCheckedChange={handleSelectAllMembers}
+                              aria-label="Select all members"
+                            />
+                          )}
+                        </TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {teamMembers.map((member) => (
+                        <TableRow key={member.id} className={member.role === 'admin' ? 'bg-muted/50' : ''}>
+                          <TableCell>
+                            {isAdminOfSelectedTeam && (
+                              <Checkbox 
+                                checked={selectedMembers.includes(member.userId)}
+                                onCheckedChange={() => handleSelectMember(member.userId)}
+                                aria-label={`Select ${member.user.name || 'member'}`}
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={member.user.avatarUrl || undefined} alt={member.user.name || 'Team member'} />
+                                <AvatarFallback>{member.user.name ? getInitials(member.user.name) : '??'}</AvatarFallback>
+                              </Avatar>
+                              <span>{member.user.name || 'Unnamed User'}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {member.user.email || 'No email'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={member.role === 'admin' ? 'default' : 'outline'}>
+                              {member.role === 'admin' ? 'Admin' : 'Member'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {isAdminOfSelectedTeam ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    Actions
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {member.role === 'admin' ? (
+                                    <DropdownMenuItem onClick={() => handleUpdateMemberRole(member.userId, 'member')}>
+                                      Make Member
+                                    </DropdownMenuItem>
+                                  ) : (
+                                    <DropdownMenuItem onClick={() => handleUpdateMemberRole(member.userId, 'admin')}>
+                                      Make Admin
+                                    </DropdownMenuItem>
+                                  )}
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem 
+                                    className="text-red-600"
+                                    onClick={() => handleRemoveMember(member.userId)}
+                                  >
+                                    Remove from Team
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">No actions available</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {selectedMembers.length > 0 && isAdminOfSelectedTeam && (
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="text-sm text-muted-foreground">
+                        {selectedMembers.length} {selectedMembers.length === 1 ? 'member' : 'members'} selected
+                      </div>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleBulkRemove}
+                      >
+                        Remove Selected
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
         </div>
       </div>
+      {/* Remove Member Confirmation Dialog */}
+      <AlertDialog open={removalConfirmOpen} onOpenChange={setRemovalConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Team Member</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove this member from the team? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRemoving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={(e) => {
+                e.preventDefault();
+                confirmRemoveMember();
+              }}
+              disabled={isRemoving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isRemoving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                'Remove'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Bulk Remove Confirmation Dialog */}
+      <AlertDialog open={bulkRemoveConfirmOpen} onOpenChange={setBulkRemoveConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Team Members</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove {selectedMembers.length} {selectedMembers.length === 1 ? 'member' : 'members'} from the team? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkRemoving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={(e) => {
+                e.preventDefault();
+                confirmBulkRemove();
+              }}
+              disabled={isBulkRemoving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isBulkRemoving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                'Remove'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 } 

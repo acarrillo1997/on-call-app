@@ -17,10 +17,20 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Search, UserPlus, X, Loader2 } from "lucide-react"
+import { UserPlus, Search, ClipboardList, Users, Plus, Loader2, X } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
 import { requireAuth } from "@/lib/auth-client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface User {
   id: string;
@@ -65,6 +75,10 @@ export default function TeamsPage() {
   const [newTeamName, setNewTeamName] = useState("")
   const [newTeamDescription, setNewTeamDescription] = useState("")
   const [isAdmin, setIsAdmin] = useState(false)
+  const [teamAdminStatus, setTeamAdminStatus] = useState<Record<string, boolean>>({})
+  const [removalConfirmOpen, setRemovalConfirmOpen] = useState(false)
+  const [memberToRemove, setMemberToRemove] = useState<{ teamId: string, userId: string } | null>(null)
+  const [isRemoving, setIsRemoving] = useState(false)
   const router = useRouter()
 
   // Check authentication
@@ -92,6 +106,16 @@ export default function TeamsPage() {
 
         // For each team, load its members
         const membersRecord: Record<string, TeamMember[]> = {};
+        const adminStatusRecord: Record<string, boolean> = {};
+        
+        // Get current user
+        const userResponse = await fetch('/api/user');
+        if (!userResponse.ok) throw new Error('Failed to fetch user');
+        const userData = await userResponse.json();
+        const currentUserId = userData.id;
+        
+        let isAdminOfAnyTeam = false;
+        
         for (const team of data) {
           try {
             const membersResponse = await fetch(`/api/teams/${team.id}/members`);
@@ -99,17 +123,25 @@ export default function TeamsPage() {
               const membersData = await membersResponse.json();
               membersRecord[team.id] = membersData;
               
-              // Check if user is admin in any team
-              const userMember = membersData.find((m: TeamMember) => m.role === 'admin');
-              if (userMember) {
-                setIsAdmin(true);
+              // Check if user is admin in this specific team
+              const isAdminOfThisTeam = membersData.some((m: TeamMember) => 
+                m.userId === currentUserId && m.role === 'admin'
+              );
+              
+              adminStatusRecord[team.id] = isAdminOfThisTeam;
+              
+              if (isAdminOfThisTeam) {
+                isAdminOfAnyTeam = true;
               }
             }
           } catch (error) {
             console.error(`Error fetching members for team ${team.id}:`, error);
           }
         }
+        
         setTeamMembers(membersRecord);
+        setTeamAdminStatus(adminStatusRecord);
+        setIsAdmin(isAdminOfAnyTeam);
       } catch (error) {
         console.error('Error fetching teams:', error);
         toast({
@@ -161,6 +193,15 @@ export default function TeamsPage() {
   );
 
   const handleAddMember = (teamId: string) => {
+    if (!teamAdminStatus[teamId]) {
+      toast({
+        title: "Permission Denied",
+        description: "Only team admins can add members",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setSelectedTeam(teamId);
     fetchAvailableUsers(teamId);
     setShowAddMemberDialog(true);
@@ -264,11 +305,26 @@ export default function TeamsPage() {
   };
 
   const removeMember = async (teamId: string, userId: string) => {
-    if (!confirm('Are you sure you want to remove this member from the team?')) {
+    if (!teamAdminStatus[teamId]) {
+      toast({
+        title: "Permission Denied",
+        description: "Only team admins can remove members",
+        variant: "destructive",
+      });
       return;
     }
     
+    setRemovalConfirmOpen(true);
+    setMemberToRemove({ teamId, userId });
+  };
+
+  const confirmRemoveMember = async () => {
+    if (!memberToRemove) return;
+    
     try {
+      setIsRemoving(true);
+      const { teamId, userId } = memberToRemove;
+      
       const response = await fetch(`/api/teams/${teamId}/members?userId=${userId}`, {
         method: 'DELETE',
       });
@@ -295,6 +351,10 @@ export default function TeamsPage() {
         description: error instanceof Error ? error.message : 'Failed to remove team member',
         variant: 'destructive',
       });
+    } finally {
+      setIsRemoving(false);
+      setRemovalConfirmOpen(false);
+      setMemberToRemove(null);
     }
   };
 
@@ -311,6 +371,15 @@ export default function TeamsPage() {
 
   // Add this new function for sending invitations
   const sendInvitation = async () => {
+    if (!selectedTeam || !teamAdminStatus[selectedTeam]) {
+      toast({
+        title: "Permission Denied",
+        description: "Only team admins can invite new members",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     if (!selectedTeam || !inviteEmail) return;
     
     setInviteSending(true);
@@ -435,6 +504,8 @@ export default function TeamsPage() {
                                 size="icon"
                                 className="h-8 w-8 rounded-full"
                                 onClick={() => handleAddMember(team.id)}
+                                disabled={!teamAdminStatus[team.id]}
+                                title={teamAdminStatus[team.id] ? "Add member" : "Only admins can add members"}
                               >
                                 <UserPlus className="h-4 w-4" />
                               </Button>
@@ -461,7 +532,7 @@ export default function TeamsPage() {
                           Manage Schedule
                         </Button>
                       </CardFooter>
-                      {isAdmin && (
+                      {teamAdminStatus[team.id] && (
                         <div className="flex gap-2 px-6 pb-6">
                           <Button
                             variant="outline"
@@ -521,22 +592,24 @@ export default function TeamsPage() {
                             </div>
                             <div className="flex items-center space-x-2">
                               <Badge variant="outline">{members.length} members</Badge>
-                              <Button variant="outline" size="sm" onClick={() => handleAddMember(team.id)}>
-                                <UserPlus className="mr-2 h-4 w-4" />
-                                Add Member
-                              </Button>
-                              {isAdmin && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setSelectedTeam(team.id);
-                                    setShowInviteDialog(true);
-                                  }}
-                                >
-                                  <UserPlus className="mr-2 h-4 w-4" />
-                                  Invite
-                                </Button>
+                              {teamAdminStatus[team.id] && (
+                                <>
+                                  <Button variant="outline" size="sm" onClick={() => handleAddMember(team.id)}>
+                                    <UserPlus className="mr-2 h-4 w-4" />
+                                    Add Member
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedTeam(team.id);
+                                      setShowInviteDialog(true);
+                                    }}
+                                  >
+                                    <UserPlus className="mr-2 h-4 w-4" />
+                                    Invite
+                                  </Button>
+                                </>
                               )}
                             </div>
                           </div>
@@ -560,14 +633,16 @@ export default function TeamsPage() {
                                     </div>
                                     <div className="flex items-center space-x-2">
                                       <Badge variant="outline">{member.role}</Badge>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="icon" 
-                                        onClick={() => removeMember(team.id, member.userId)}
-                                        title="Remove member"
-                                      >
-                                        <X className="h-4 w-4" />
-                                      </Button>
+                                      {teamAdminStatus[team.id] && (
+                                        <Button 
+                                          variant="ghost" 
+                                          size="icon" 
+                                          onClick={() => removeMember(team.id, member.userId)}
+                                          title="Remove member"
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </Button>
+                                      )}
                                     </div>
                                   </div>
                                 ))}
@@ -745,6 +820,39 @@ export default function TeamsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Remove Member Confirmation Dialog */}
+      <AlertDialog open={removalConfirmOpen} onOpenChange={setRemovalConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Team Member</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove this member from the team? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRemoving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={(e) => {
+                e.preventDefault();
+                confirmRemoveMember();
+              }}
+              disabled={isRemoving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isRemoving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                'Remove'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
