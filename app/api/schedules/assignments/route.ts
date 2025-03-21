@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { format, addDays, startOfDay, endOfDay, parseISO } from "date-fns";
 
 // Get all assignments
 export async function GET(request: NextRequest) {
@@ -142,56 +143,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse date
-    const assignmentDate = new Date(data.date);
+    // Parse date - ensure we're using startOfDay for consistent date handling
+    const dayDate = startOfDay(new Date(data.date));
+    console.log(`Processing assignment for date: ${dayDate.toISOString()} (from input: ${data.date})`);
 
-    // Check if there's an existing assignment for this date
-    const existingAssignment = await prisma.assignment.findFirst({
+    // Delete any existing assignments for this date and schedule
+    const deletedAssignments = await prisma.assignment.deleteMany({
       where: {
         scheduleId: data.scheduleId,
-        date: assignmentDate,
+        date: {
+          gte: startOfDay(dayDate),
+          lt: endOfDay(dayDate),
+        },
       },
     });
-
-    // Create or update assignment
-    let assignment;
     
-    if (existingAssignment) {
-      // Update existing assignment
-      assignment = await prisma.assignment.update({
-        where: { id: existingAssignment.id },
-        data: { userId: data.userId },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatarUrl: true,
-            },
+    console.log(`Deleted ${deletedAssignments.count} existing assignments for this date`);
+
+    // Create new assignment with the normalized date
+    const assignment = await prisma.assignment.create({
+      data: {
+        scheduleId: data.scheduleId,
+        userId: data.userId,
+        date: dayDate,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatarUrl: true,
           },
         },
-      });
-    } else {
-      // Create new assignment
-      assignment = await prisma.assignment.create({
-        data: {
-          scheduleId: data.scheduleId,
-          userId: data.userId,
-          date: assignmentDate,
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatarUrl: true,
-            },
-          },
-        },
-      });
-    }
+      },
+    });
 
     return NextResponse.json(assignment);
   } catch (error) {

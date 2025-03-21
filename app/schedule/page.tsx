@@ -59,6 +59,7 @@ interface Assignment {
   userId: string;
   date: string;
   user: User;
+  createdAt?: string;
 }
 
 interface Schedule {
@@ -156,29 +157,38 @@ export default function SchedulePage() {
   }, [selectedTeam]);
   
   // Load schedules when team changes
-  useEffect(() => {
-    const fetchSchedules = async () => {
-      if (!selectedTeam) return;
-      
-      setLoading(true);
-      try {
-        const response = await fetch(`/api/schedules?teamId=${selectedTeam}`);
-        if (!response.ok) throw new Error('Failed to fetch schedules');
-        
-        const schedulesData = await response.json();
-        setSchedules(schedulesData);
-      } catch (error) {
-        console.error('Error fetching schedules:', error);
-        toast({
-          title: 'Error',
-          description: 'Failed to load schedules',
-          variant: 'destructive',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchSchedules = async () => {
+    if (!selectedTeam) return;
     
+    setLoading(true);
+    try {
+      // Add a timestamp to prevent caching
+      const timestamp = new Date().getTime();
+      const response = await fetch(`/api/schedules?teamId=${selectedTeam}&t=${timestamp}`);
+      if (!response.ok) throw new Error('Failed to fetch schedules');
+      
+      const schedulesData = await response.json();
+      console.log(`Fetched ${schedulesData.length} schedules with their assignments`);
+      
+      // Log details about assignments for debugging
+      schedulesData.forEach((schedule: any) => {
+        console.log(`Schedule ${schedule.id} has ${schedule.assignments?.length || 0} assignments`);
+      });
+      
+      setSchedules(schedulesData);
+    } catch (error) {
+      console.error('Error fetching schedules:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load schedules',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  useEffect(() => {
     fetchSchedules();
   }, [selectedTeam]);
   
@@ -262,36 +272,54 @@ export default function SchedulePage() {
       currentDate.setDate(currentDate.getDate() + 1);
     }
     
-    // Populate with assignments
+    // Group assignments by schedule and date to handle potential duplicates
+    const groupedAssignments = new Map<string, Map<string, Assignment>>();
+    
+    // First pass: organize assignments by schedule and date, keeping only the most recent one
     schedules.forEach(schedule => {
-      schedule.assignments.forEach(assignment => {
+      const scheduleMap = new Map<string, Assignment>();
+      groupedAssignments.set(schedule.id, scheduleMap);
+      
+      // Sort assignments by createdAt to ensure we get the most recent one
+      const sortedAssignments = [...schedule.assignments].sort((a, b) => 
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      );
+      
+      sortedAssignments.forEach(assignment => {
         const assignmentDate = new Date(assignment.date);
-        if (view === "day") {
-          // For day view, use isSameDay to check if dates match
-          if (isSameDay(assignmentDate, startDate)) {
-            const dateKey = format(assignmentDate, "yyyy-MM-dd");
-            if (!assignmentsByDate[dateKey]) {
-              assignmentsByDate[dateKey] = [];
-            }
-            assignmentsByDate[dateKey].push({
-              user: assignment.user,
-              schedule: schedule
-            });
-          }
-        } else {
-          // For week and month views, use range comparison
-          if (assignmentDate >= startDate && assignmentDate <= endDate) {
-            const dateKey = format(assignmentDate, "yyyy-MM-dd");
-            if (!assignmentsByDate[dateKey]) {
-              assignmentsByDate[dateKey] = [];
-            }
-            assignmentsByDate[dateKey].push({
-              user: assignment.user,
-              schedule: schedule
-            });
-          }
+        const dateKey = format(assignmentDate, "yyyy-MM-dd");
+        
+        // Only keep one assignment per date per schedule
+        if (!scheduleMap.has(dateKey)) {
+          scheduleMap.set(dateKey, assignment);
         }
       });
+    });
+    
+    // Second pass: populate the assignments by date
+    schedules.forEach(schedule => {
+      const scheduleMap = groupedAssignments.get(schedule.id);
+      if (!scheduleMap) return;
+      
+      // Convert map to array and process
+      for (const [dateKey, assignment] of scheduleMap.entries()) {
+        const assignmentDate = new Date(assignment.date);
+        
+        // Check if the date is in our current view range
+        if (
+          (view === "day" && isSameDay(assignmentDate, startDate)) || 
+          (view !== "day" && assignmentDate >= startDate && assignmentDate <= endDate)
+        ) {
+          if (!assignmentsByDate[dateKey]) {
+            assignmentsByDate[dateKey] = [];
+          }
+          
+          assignmentsByDate[dateKey].push({
+            user: assignment.user,
+            schedule: schedule
+          });
+        }
+      }
     });
     
     return assignmentsByDate;
@@ -424,38 +452,8 @@ export default function SchedulePage() {
         throw new Error(error.error || 'Failed to update assignment');
       }
       
-      const updatedAssignment = await response.json();
-      
-      // Update schedules in state
-      setSchedules(prev => 
-        prev.map(schedule => {
-          if (schedule.id === selectedSchedule.id) {
-            // Check if assignment already exists
-            const assignmentExists = schedule.assignments.some(
-              a => isSameDay(new Date(a.date), selectedDate)
-            );
-            
-            if (assignmentExists) {
-              // Update existing assignment
-              return {
-                ...schedule,
-                assignments: schedule.assignments.map(a => 
-                  isSameDay(new Date(a.date), selectedDate)
-                    ? updatedAssignment
-                    : a
-                )
-              };
-            } else {
-              // Add new assignment
-              return {
-                ...schedule,
-                assignments: [...schedule.assignments, updatedAssignment]
-              };
-            }
-          }
-          return schedule;
-        })
-      );
+      // After successful update, fetch fresh data
+      await fetchSchedules();
       
       setAssignmentDialogOpen(false);
       
@@ -491,13 +489,8 @@ export default function SchedulePage() {
         throw new Error(error.error || 'Failed to delete assignment');
       }
       
-      // Update schedules in state
-      setSchedules(prev => 
-        prev.map(schedule => ({
-          ...schedule,
-          assignments: schedule.assignments.filter(a => a.id !== assignmentToDelete)
-        }))
-      );
+      // After successful deletion, fetch fresh data
+      await fetchSchedules();
       
       setDeleteAssignmentOpen(false);
       setAssignmentToDelete(null);
@@ -520,21 +513,35 @@ export default function SchedulePage() {
   
   // Initialize assignment dialog
   const openAssignmentDialog = (scheduleId: string, date: Date) => {
+    console.log(`Opening assignment dialog for schedule ${scheduleId} and date ${format(date, "yyyy-MM-dd")}`);
+    
     const schedule = schedules.find(s => s.id === scheduleId);
-    if (!schedule) return;
+    if (!schedule) {
+      console.error(`Schedule with ID ${scheduleId} not found`);
+      return;
+    }
     
     setSelectedSchedule(schedule);
     setSelectedDate(date);
     
     // Check if an assignment already exists for this date and schedule
-    const existingAssignment = schedule.assignments.find(
+    // Debug: log all assignments for this date
+    const assignmentsForDate = schedule.assignments.filter(
       a => isSameDay(new Date(a.date), date)
     );
     
+    console.log(`Found ${assignmentsForDate.length} assignments for this date:`, 
+      assignmentsForDate.map(a => ({ id: a.id, userId: a.userId, date: a.date }))
+    );
+    
+    const existingAssignment = assignmentsForDate[0]; // Take the first one if multiple exist
+    
     if (existingAssignment) {
+      console.log(`Setting selected user to ${existingAssignment.userId} from existing assignment`);
       setSelectedUser(existingAssignment.userId);
     } else {
-      setSelectedUser(null);
+      console.log(`No existing assignment, resetting selected user`);
+      setSelectedUser("");
     }
     
     setAssignmentDialogOpen(true);
