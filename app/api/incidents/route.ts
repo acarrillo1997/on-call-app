@@ -2,6 +2,83 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+/**
+ * @swagger
+ * /api/incidents:
+ *   get:
+ *     summary: Get all incidents
+ *     description: Retrieves all incidents the user has access to, with optional filtering
+ *     tags:
+ *       - Incidents
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: teamId
+ *         in: query
+ *         description: Filter incidents by team ID
+ *         schema:
+ *           type: string
+ *       - name: status
+ *         in: query
+ *         description: Filter incidents by status
+ *         schema:
+ *           type: string
+ *           enum: [open, resolved, investigating, closed]
+ *     responses:
+ *       200:
+ *         description: A list of incidents
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                   title:
+ *                     type: string
+ *                   description:
+ *                     type: string
+ *                     nullable: true
+ *                   status:
+ *                     type: string
+ *                     enum: [open, resolved, investigating, closed]
+ *                   priority:
+ *                     type: string
+ *                     enum: [low, medium, high, critical]
+ *                   teamId:
+ *                     type: string
+ *                   createdById:
+ *                     type: string
+ *                   createdAt:
+ *                     type: string
+ *                     format: date-time
+ *                   updatedAt:
+ *                     type: string
+ *                     format: date-time
+ *                   team:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                   createdBy:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       avatarUrl:
+ *                         type: string
+ *                         nullable: true
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
 export async function GET(request: NextRequest) {
   try {
     // Verify authentication
@@ -69,6 +146,80 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/**
+ * @swagger
+ * /api/incidents:
+ *   post:
+ *     summary: Create a new incident
+ *     description: Creates a new incident for a team
+ *     tags:
+ *       - Incidents
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - teamId
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               teamId:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *                 enum: [low, medium, high, critical]
+ *                 default: medium
+ *               status:
+ *                 type: string
+ *                 enum: [open, resolved, investigating, closed]
+ *                 default: open
+ *     responses:
+ *       201:
+ *         description: Incident created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                 title:
+ *                   type: string
+ *                 description:
+ *                   type: string
+ *                   nullable: true
+ *                 status:
+ *                   type: string
+ *                 priority:
+ *                   type: string
+ *                 teamId:
+ *                   type: string
+ *                 createdById:
+ *                   type: string
+ *                 createdAt:
+ *                   type: string
+ *                   format: date-time
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Bad request - Missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - User not a member of the team
+ *       404:
+ *         description: Team not found
+ *       500:
+ *         description: Internal server error
+ */
 export async function POST(request: NextRequest) {
   try {
     // Verify authentication

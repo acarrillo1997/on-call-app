@@ -2,6 +2,60 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+/**
+ * @swagger
+ * /api/teams/{id}/members:
+ *   get:
+ *     summary: Get all members of a team
+ *     description: Retrieves all members of a team, authenticated user must be a member of the team
+ *     tags:
+ *       - Team Members
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: ID of the team
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of team members
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                   userId:
+ *                     type: string
+ *                   teamId:
+ *                     type: string
+ *                   role:
+ *                     type: string
+ *                     enum: [admin, member]
+ *                   user:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       email:
+ *                         type: string
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - user doesn't have access to this team
+ *       404:
+ *         description: Team not found
+ *       500:
+ *         description: Internal server error
+ */
 // Get all team members
 export async function GET(
   request: NextRequest,
@@ -64,6 +118,54 @@ export async function GET(
   }
 }
 
+/**
+ * @swagger
+ * /api/teams/{id}/members:
+ *   post:
+ *     summary: Add a new member to the team
+ *     description: Adds a user to the team, authenticated user must be a team admin
+ *     tags:
+ *       - Team Members
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: ID of the team
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userId
+ *             properties:
+ *               userId:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *                 enum: [admin, member]
+ *                 default: member
+ *     responses:
+ *       201:
+ *         description: Member added successfully
+ *       400:
+ *         description: Bad request - Missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - must be a team admin
+ *       404:
+ *         description: Team or user not found
+ *       409:
+ *         description: User is already a member
+ *       500:
+ *         description: Internal server error
+ */
 // Add a member to the team
 export async function POST(
   request: NextRequest,
@@ -168,6 +270,48 @@ export async function POST(
   }
 }
 
+/**
+ * @swagger
+ * /api/teams/{id}/members:
+ *   delete:
+ *     summary: Remove a member from the team
+ *     description: Removes a user from the team, authenticated user must be a team admin or removing themselves
+ *     tags:
+ *       - Team Members
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: ID of the team
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userId
+ *             properties:
+ *               userId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Member removed successfully
+ *       400:
+ *         description: Bad request - Missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - must be a team admin or self
+ *       404:
+ *         description: Team member not found
+ *       500:
+ *         description: Internal server error
+ */
 // Remove a member from the team
 export async function DELETE(
   request: NextRequest,
