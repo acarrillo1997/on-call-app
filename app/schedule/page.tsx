@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, Suspense } from "react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -75,7 +75,7 @@ interface Schedule {
   assignments: Assignment[];
 }
 
-export default function SchedulePage() {
+function ScheduleContent() {
   // URL params
   const searchParams = useSearchParams()
   const initialTeamId = searchParams.get("team")
@@ -1548,5 +1548,22 @@ export default function SchedulePage() {
       </AlertDialog>
     </div>
   );
+}
+
+export default function SchedulePage() {
+  return (
+    <Suspense fallback={
+      <div className="container py-10">
+        <Card className="w-full">
+          <CardContent className="flex flex-col items-center justify-center p-8 space-y-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p>Loading schedule...</p>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <ScheduleContent />
+    </Suspense>
+  )
 }
 

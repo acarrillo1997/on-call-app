@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -8,7 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { requireAuth } from "@/lib/auth-client"
 import { AlertCircle, Check, Loader } from "lucide-react"
 
-export default function AcceptInvitationPage() {
+function InvitationContent() {
   const { toast } = useToast()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -142,5 +142,22 @@ export default function AcceptInvitationPage() {
         </CardFooter>
       </Card>
     </div>
+  )
+}
+
+export default function AcceptInvitationPage() {
+  return (
+    <Suspense fallback={
+      <div className="container flex items-center justify-center min-h-screen py-10">
+        <Card className="w-full max-w-md mx-auto">
+          <CardContent className="flex flex-col items-center justify-center p-8 space-y-4">
+            <Loader className="h-8 w-8 animate-spin text-primary" />
+            <p>Loading invitation...</p>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <InvitationContent />
+    </Suspense>
   )
 } 
