@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Loader2, ChevronLeft, ChevronRight, Plus, Edit, Save, Calendar as CalendarIcon, User, Users, X, Clock, RotateCw } from "lucide-react"
+import { Loader2, ChevronLeft, ChevronRight, Plus, Edit, Save, Calendar as CalendarIcon, User, Users, X, Clock, RotateCw, Info } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import { requireAuth } from "@/lib/auth-client"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -266,15 +266,30 @@ export default function SchedulePage() {
     schedules.forEach(schedule => {
       schedule.assignments.forEach(assignment => {
         const assignmentDate = new Date(assignment.date);
-        if (assignmentDate >= startDate && assignmentDate <= endDate) {
-          const dateKey = format(assignmentDate, "yyyy-MM-dd");
-          if (!assignmentsByDate[dateKey]) {
-            assignmentsByDate[dateKey] = [];
+        if (view === "day") {
+          // For day view, use isSameDay to check if dates match
+          if (isSameDay(assignmentDate, startDate)) {
+            const dateKey = format(assignmentDate, "yyyy-MM-dd");
+            if (!assignmentsByDate[dateKey]) {
+              assignmentsByDate[dateKey] = [];
+            }
+            assignmentsByDate[dateKey].push({
+              user: assignment.user,
+              schedule: schedule
+            });
           }
-          assignmentsByDate[dateKey].push({
-            user: assignment.user,
-            schedule: schedule
-          });
+        } else {
+          // For week and month views, use range comparison
+          if (assignmentDate >= startDate && assignmentDate <= endDate) {
+            const dateKey = format(assignmentDate, "yyyy-MM-dd");
+            if (!assignmentsByDate[dateKey]) {
+              assignmentsByDate[dateKey] = [];
+            }
+            assignmentsByDate[dateKey].push({
+              user: assignment.user,
+              schedule: schedule
+            });
+          }
         }
       });
     });
@@ -306,7 +321,8 @@ export default function SchedulePage() {
   // Get assignments for a specific date
   const getAssignmentsForDate = (date: Date) => {
     const dateKey = format(date, "yyyy-MM-dd");
-    return assignmentsByDate[dateKey] || [];
+    const assignments = assignmentsByDate[dateKey] || [];
+    return assignments;
   };
   
   // Handle creating a new schedule
@@ -416,7 +432,7 @@ export default function SchedulePage() {
           if (schedule.id === selectedSchedule.id) {
             // Check if assignment already exists
             const assignmentExists = schedule.assignments.some(
-              a => new Date(a.date).toDateString() === selectedDate.toDateString()
+              a => isSameDay(new Date(a.date), selectedDate)
             );
             
             if (assignmentExists) {
@@ -424,7 +440,7 @@ export default function SchedulePage() {
               return {
                 ...schedule,
                 assignments: schedule.assignments.map(a => 
-                  new Date(a.date).toDateString() === selectedDate.toDateString()
+                  isSameDay(new Date(a.date), selectedDate)
                     ? updatedAssignment
                     : a
                 )
@@ -512,7 +528,7 @@ export default function SchedulePage() {
     
     // Check if an assignment already exists for this date and schedule
     const existingAssignment = schedule.assignments.find(
-      a => new Date(a.date).toDateString() === date.toDateString()
+      a => isSameDay(new Date(a.date), date)
     );
     
     if (existingAssignment) {
@@ -1187,6 +1203,10 @@ export default function SchedulePage() {
               </div>
             </div>
             
+            <div className="text-sm text-muted-foreground">
+              <p>Team members will be assigned based on your rotation frequency. For example, with a weekly rotation, each member will be on-call for a full week before rotating to the next person.</p>
+            </div>
+            
             {newScheduleTeam && teamMembers[newScheduleTeam] && (
               <div className="grid gap-2">
                 <Label className="font-medium">Team Members in Rotation</Label>
@@ -1426,6 +1446,10 @@ export default function SchedulePage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            
+            <div className="text-sm text-muted-foreground">
+              <p>Team members will be assigned based on your rotation frequency. For example, with a weekly rotation, each member will be on-call for a full week before rotating to the next person.</p>
             </div>
             
             {editingSchedule && teamMembers[editingSchedule.teamId] && (
