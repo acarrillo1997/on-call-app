@@ -83,8 +83,21 @@ export async function POST(request: NextRequest) {
     // Get request body
     const data = await request.json();
     
+    // Sanitize the data
+    const sanitizedData = { ...data };
+    
+    // Handle serviceId - if it's 'none' or empty string, set it to null
+    if (!sanitizedData.serviceId || sanitizedData.serviceId === 'none') {
+      sanitizedData.serviceId = null;
+    }
+    
+    // Handle escalationPolicyId - if it's 'none' or empty string, set it to null
+    if (!sanitizedData.escalationPolicyId || sanitizedData.escalationPolicyId === 'none') {
+      sanitizedData.escalationPolicyId = null;
+    }
+    
     // Validate required fields
-    if (!data.title || !data.teamId) {
+    if (!sanitizedData.title || !sanitizedData.teamId) {
       return NextResponse.json(
         { error: "Title and team ID are required" },
         { status: 400 }
@@ -96,7 +109,7 @@ export async function POST(request: NextRequest) {
       where: {
         userId_teamId: {
           userId,
-          teamId: data.teamId,
+          teamId: sanitizedData.teamId,
         },
       },
     });
@@ -108,31 +121,165 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create the incident
-    const incident = await prisma.incident.create({
-      data: {
-        title: data.title,
-        description: data.description,
-        severity: data.severity,
-        teamId: data.teamId,
-        createdById: userId,
-        status: "open",
-      },
-      include: {
-        team: true,
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            avatarUrl: true,
+    // Start a transaction to create the incident and related records
+    const incident = await prisma.$transaction(async (tx) => {
+      // Create the incident
+      const createdIncident = await tx.incident.create({
+        data: {
+          title: sanitizedData.title,
+          description: sanitizedData.description,
+          severity: sanitizedData.severity,
+          teamId: sanitizedData.teamId,
+          createdById: userId,
+          // Only include serviceId if it's not null
+          ...(sanitizedData.serviceId ? { serviceId: sanitizedData.serviceId } : {}),
+          status: "open",
+        },
+        include: {
+          team: true,
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              avatarUrl: true,
+            },
           },
         },
-      },
+      });
+
+      // Create an incident update for the creation
+      await tx.incidentUpdate.create({
+        data: {
+          incidentId: createdIncident.id,
+          userId,
+          message: `Incident created by ${createdIncident.createdBy.name || userId}`,
+          type: 'CREATED'
+        }
+      });
+
+      // Handle escalation policy if provided
+      if (sanitizedData.escalationPolicyId) {
+        // Get the escalation policy
+        const escalationPolicy = await tx.escalationPolicy.findUnique({
+          where: { id: sanitizedData.escalationPolicyId }
+        });
+
+        if (escalationPolicy) {
+          // Parse the escalation steps
+          const steps = escalationPolicy.steps as any[];
+          
+          // For each step, create an escalation log
+          let level = 1;
+          for (const step of steps) {
+            await tx.escalationLog.create({
+              data: {
+                incidentId: createdIncident.id,
+                level,
+                targetId: step.targetId,
+                targetType: step.targetType,
+                status: 'triggered'
+              }
+            });
+            level++;
+          }
+
+          // For the first step, create notifications
+          if (steps.length > 0) {
+            const firstStep = steps[0];
+            
+            if (firstStep.targetType === 'USER') {
+              // Get user settings to determine notification channels
+              const userSettings = await tx.userSettings.findUnique({
+                where: { userId: firstStep.targetId }
+              });
+              
+              if (userSettings) {
+                // Create notification logs based on user preferences
+                if (userSettings.emailNotifications) {
+                  await tx.notificationLog.create({
+                    data: {
+                      incidentId: createdIncident.id,
+                      userId: firstStep.targetId,
+                      channel: 'email',
+                      status: 'sent'
+                    }
+                  });
+                }
+                
+                if (userSettings.smsNotifications) {
+                  await tx.notificationLog.create({
+                    data: {
+                      incidentId: createdIncident.id,
+                      userId: firstStep.targetId,
+                      channel: 'sms',
+                      status: 'sent'
+                    }
+                  });
+                }
+                
+                if (userSettings.slackNotifications) {
+                  await tx.notificationLog.create({
+                    data: {
+                      incidentId: createdIncident.id,
+                      userId: firstStep.targetId,
+                      channel: 'slack',
+                      status: 'sent'
+                    }
+                  });
+                }
+                
+                if (userSettings.voiceNotifications) {
+                  await tx.notificationLog.create({
+                    data: {
+                      incidentId: createdIncident.id,
+                      userId: firstStep.targetId,
+                      channel: 'voice',
+                      status: 'sent'
+                    }
+                  });
+                }
+              }
+            } else if (firstStep.targetType === 'TEAM') {
+              // Get all team members
+              const teamMembers = await tx.teamMember.findMany({
+                where: { teamId: firstStep.targetId },
+                select: { userId: true }
+              });
+              
+              // Create notification logs for each team member
+              for (const member of teamMembers) {
+                // Get user settings
+                const userSettings = await tx.userSettings.findUnique({
+                  where: { userId: member.userId }
+                });
+                
+                if (userSettings) {
+                  // Create notification logs based on user preferences
+                  if (userSettings.emailNotifications) {
+                    await tx.notificationLog.create({
+                      data: {
+                        incidentId: createdIncident.id,
+                        userId: member.userId,
+                        channel: 'email',
+                        status: 'sent'
+                      }
+                    });
+                  }
+                  
+                  // Add other notification channels as needed
+                }
+              }
+            }
+          }
+        }
+      }
+
+      return createdIncident;
     });
 
     return NextResponse.json(incident, { status: 201 });
   } catch (error) {
-    console.error("Error creating incident:", error);
+    console.error("Error creating incident:", error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

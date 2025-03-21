@@ -33,6 +33,13 @@ model User {
   apiKeys       ApiKey[]
   integrations  Integration[]
   assignments   Assignment[]
+  
+  // New relations
+  assignedIncidents Incident[] @relation("AssignedIncidents")
+  acknowledgedIncidents Incident[] @relation("AcknowledgedIncidents")
+  incidentUpdates IncidentUpdate[]
+  notificationLogs NotificationLog[]
+  acknowledgments IncidentAcknowledgment[]
 }
 
 // UserSettings model for storing notification preferences
@@ -99,6 +106,10 @@ model Team {
   onCallShifts OnCallShift[]
   incidents   Incident[]
   schedules   Schedule[]
+  
+  // New relations
+  services    Service[]
+  escalationPolicies EscalationPolicy[]
 }
 
 // TeamMember junction table for many-to-many relation
@@ -160,13 +171,24 @@ model Incident {
   severity    String?  // e.g. "critical", "high", "medium", "low"
   createdById String
   teamId      String
+  assigneeId  String?
+  serviceId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   resolvedAt  DateTime?
+  acknowledgedAt DateTime?
+  acknowledgedById String?
 
   // Relations
   createdBy   User     @relation(fields: [createdById], references: [id])
   team        Team     @relation(fields: [teamId], references: [id])
+  assignee    User?    @relation("AssignedIncidents", fields: [assigneeId], references: [id])
+  acknowledgedBy User? @relation("AcknowledgedIncidents", fields: [acknowledgedById], references: [id])
+  service     Service? @relation(fields: [serviceId], references: [id])
+  escalations EscalationLog[]
+  updates     IncidentUpdate[]
+  notifications NotificationLog[]
+  acknowledgments IncidentAcknowledgment[]
 }
 
 // Schedule model for on-call rotations
@@ -202,4 +224,91 @@ model Assignment {
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([scheduleId, date])
+}
+
+// New models for incident logging functionality
+
+// Service model for different services that can trigger incidents
+model Service {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  teamId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  incidents   Incident[]
+}
+
+// EscalationPolicy model
+model EscalationPolicy {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  teamId      String
+  steps       Json     // Array of escalation steps with timing and targets
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+// IncidentUpdate model for tracking status changes and comments
+model IncidentUpdate {
+  id          String   @id @default(cuid())
+  incidentId  String
+  userId      String
+  message     String
+  type        String   // STATUS_CHANGE, COMMENT, ASSIGNMENT_CHANGE, etc.
+  createdAt   DateTime @default(now())
+
+  // Relations
+  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+// NotificationLog model for tracking notifications sent
+model NotificationLog {
+  id          String   @id @default(cuid())
+  incidentId  String
+  userId      String
+  channel     String   // email, sms, slack, voice
+  status      String   // sent, delivered, failed
+  errorMessage String?
+  sentAt      DateTime @default(now())
+  deliveredAt DateTime?
+
+  // Relations
+  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+// EscalationLog model for tracking escalation events
+model EscalationLog {
+  id          String   @id @default(cuid())
+  incidentId  String
+  level       Int
+  triggeredAt DateTime @default(now())
+  targetId    String   // User or team that was notified
+  targetType  String   // USER or TEAM
+  status      String   // triggered, acknowledged, resolved
+
+  // Relations
+  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+}
+
+// IncidentAcknowledgment model for tracking acknowledgments
+model IncidentAcknowledgment {
+  id          String   @id @default(cuid())
+  incidentId  String
+  userId      String
+  channel     String   // web, slack, sms, voice
+  acknowledgedAt DateTime @default(now())
+  
+  // Relations
+  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
 }

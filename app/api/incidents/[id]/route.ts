@@ -23,7 +23,23 @@ export async function GET(
     const incident = await prisma.incident.findUnique({
       where: { id },
       include: {
+        team: true,
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatarUrl: true,
+          },
+        },
         assignee: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        acknowledgedBy: {
           select: {
             id: true,
             name: true,
@@ -34,6 +50,16 @@ export async function GET(
         updates: {
           orderBy: {
             createdAt: 'desc'
+          },
+          take: 5,
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              }
+            }
           }
         }
       },
@@ -84,6 +110,7 @@ export async function PATCH(
       "severity",
       "assigneeId",
       "serviceId",
+      "resolvedAt"
     ];
     
     const sanitizedData: Record<string, any> = {};
@@ -104,6 +131,47 @@ export async function PATCH(
         { error: "Incident not found" },
         { status: 404 }
       );
+    }
+
+    // Handle incident acknowledgment
+    if (data.status === "acknowledged" && currentIncident.status !== "acknowledged") {
+      sanitizedData.acknowledgedAt = new Date();
+      sanitizedData.acknowledgedById = userId;
+      
+      // Create an acknowledgment record
+      await prisma.incidentAcknowledgment.create({
+        data: {
+          incidentId: id,
+          userId: userId,
+          channel: data.channel || "web",
+          acknowledgedAt: new Date(),
+        }
+      });
+      
+      // Create an incident update
+      await prisma.incidentUpdate.create({
+        data: {
+          incidentId: id,
+          userId,
+          message: `Incident acknowledged by ${(await prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name || userId}`,
+          type: 'ACKNOWLEDGMENT'
+        }
+      });
+    }
+
+    // Handle incident resolution
+    if (data.status === "resolved" && currentIncident.status !== "resolved") {
+      sanitizedData.resolvedAt = data.resolvedAt || new Date();
+      
+      // Create an incident update
+      await prisma.incidentUpdate.create({
+        data: {
+          incidentId: id,
+          userId,
+          message: `Incident resolved by ${(await prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name || userId}`,
+          type: 'RESOLUTION'
+        }
+      });
     }
 
     // If status changed, create an incident update
@@ -146,6 +214,36 @@ export async function PATCH(
     const incident = await prisma.incident.update({
       where: { id },
       data: sanitizedData,
+      include: {
+        team: true,
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          }
+        },
+        assignee: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          }
+        },
+        acknowledgedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          }
+        },
+        updates: {
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 5
+        }
+      }
     });
 
     return NextResponse.json(incident);
